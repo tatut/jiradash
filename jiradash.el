@@ -74,11 +74,9 @@
       (dolist (action actions)
         (insert-button (cdr action)
                        'action (lambda (_button)
-                                 (message "run action %s on %s" action key)
-                                 ;; TODO: run action
-                                 )
-                       'help-echo (format "Transition %s to %s" key action)
-                       )
+                                 (message "run action %s on %s" (cdr action) key)
+                                 (jiralib2-do-action key (car action)))
+                       'help-echo (format "Transition %s to %s" key action))
         (insert " "))
       (insert "\n"))
 
