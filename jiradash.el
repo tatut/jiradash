@@ -84,9 +84,14 @@
   ;; This assumes that all JIRA installations have: https://jira.example.com/browse/<ISSUE>
   (format "%s/browse/%s" (cadr (s-match "^\\(.*\\)/rest/api/.*$" url)) issue))
 
+(defun jiradash-get-likely-assignable-users (key)
+  (let ((project (car (split-string key "-"))))
+    (mapcar (lambda (issue)
+              (alist-get 'assignee (alist-get 'fields issue)))
+            (jiralib2-jql-search (format "project = %s and assignee is not null" project) "assignee"))))
 
 (defun jiradash-assign-issue (key)
-  (let* ((assignable-users (jiralib2-get-assignable-users key))
+  (let* ((assignable-users (jiradash-get-likely-assignable-users key)) ; PENDING: configurable (jiralib2-get-assignable-users key)
          (assignee (completing-read (format "Assign %s to: " key)
                                     (cl-concatenate 'list
                                                     (list "unassigned")
