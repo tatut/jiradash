@@ -4,13 +4,13 @@
 (require 's)
 (require 'dash)
 
+(defconst jiradash-hotkeys '("o" "a" "1" "2" "3" "4" "5" "6"))
+
 (defvar jiradash-mode-map
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map magit-section-mode-map)
-    (define-key map "o" 'jiradash-cmd-activate-button)
-    (dotimes (i 7)
-      (let ((hotkey (format "%d" i)))
-        (define-key map hotkey 'jiradash-cmd-activate-button)))
+    (dolist (h jiradash-hotkeys)
+      (define-key map h 'jiradash-cmd-activate-button))
     (define-key map "g" 'jiradash)
     map)
   "Keymap for jiradash mode")
@@ -18,9 +18,17 @@
 (define-derived-mode jiradash-mode magit-section-mode "JiraDash"
   "Mode for looking at your JIRA dashboard.")
 
-(defcustom jiradash-dashboard-jql
-  "resolution = Unresolved and status != closed and assignee = currentUser()"
-  "The JIRA JQL query to run to fetch dashboard items")
+(defcustom jiradash-dashboards
+  '(((name . "My open issues")
+     (jql . "resolution = Unresolved and status != closed and assignee = currentUser() and Sprint in openSprints()"))
+
+    ((name . "Current sprint issues")
+     (jql . "sprint in openSprints()"))
+
+    ((name . "Backlog and future issues")
+     (jql . "(sprint = null or sprint in futureSprints()) and status != Closed")))
+  "The JIRA dashboards to show"
+  :type '(list (alist :key-type string :value-type string)))
 
 (defun jiradash-issue-at-point ()
   (alist-get 'jiradash-issue (magit-section-ident (magit-current-section))))
@@ -53,8 +61,8 @@
               (button-activate found-button)
               (message "No button found for hotkey: %s" hotkey)))))))
 
-(defun jiradash-issues ()
-  (jiralib2-jql-search jiradash-dashboard-jql "summary" "description" "status"))
+(defun jiradash-issues (jql)
+  (jiralib2-jql-search jql "summary" "description" "status"))
 
 (defmacro with-jiradash-buffer (&rest body)
   (declare (indent 0))
@@ -76,6 +84,24 @@
   ;; This assumes that all JIRA installations have: https://jira.example.com/browse/<ISSUE>
   (format "%s/browse/%s" (cadr (s-match "^\\(.*\\)/rest/api/.*$" url)) issue))
 
+
+(defun jiradash-assign-issue (key)
+  (let* ((assignable-users (jiralib2-get-assignable-users key))
+         (assignee (completing-read (format "Assign %s to: " key)
+                                    (cl-concatenate 'list
+                                                    (list "unassigned")
+                                                    (mapcar (lambda (user)
+                                                              (alist-get 'displayName user))
+                                                            assignable-users)))))
+    (message "Assigning %s to %s" key assignee)
+    (jiralib2-assign-issue key (if (string= "unassigned" assignee)
+                                   nil
+                                 (-some (lambda (user)
+                                          (let ((display-name (alist-get 'displayName user)))
+                                            (when (string= display-name assignee)
+                                              (alist-get 'name user))))
+                                        assignable-users)))))
+
 (defun jiradash-fetch-and-insert-issue (key)
   (message "Fetch issue %s" key)
   (let* ((issue (jiralib2-get-issue key))
@@ -93,6 +119,12 @@
                                                        key)))
                         'help-echo (format "Open %s in browser" key))
          'jiradash-hotkey "o")
+        (insert " ")
+        (button-put (insert-button "(a) Assign"
+                                   'action (lambda (_button)
+                                             (jiradash-assign-issue key))
+                                   'help-echo (format "Set new assignee for %s" key))
+                    'jiradash-hotkey "a")
         (insert "\n")
         (when (> (length actions) 0)
           (insert "Actions: ")
@@ -137,11 +169,14 @@
 
 (defun jiradash ()
   (interactive)
-  (let ((issues (jiradash-issues)))
-    (with-jiradash-buffer
-      (magit-insert-section (jiradash-issues)
-        (magit-insert-heading
-          (format "JIRA dashboard, %d issues" (length issues)))
-        (magit-insert-section-body
-          (dolist (issue issues)
-            (jiradash-issue-section issue)))))))
+  (with-jiradash-buffer
+    (dolist (dashboard jiradash-dashboards)
+      (let ((dashboard-name (alist-get 'name dashboard))
+            (dashboard-jql (alist-get 'jql dashboard)))
+        (magit-insert-section (jiradash-issues dashboard-name t)
+          (magit-insert-heading dashboard-name)
+          (magit-insert-section-body
+            (let ((issues (jiradash-issues dashboard-jql)))
+              (insert (format "%d issues\n" (length issues)))
+              (dolist (issue issues)
+                (jiradash-issue-section issue)))))))))
