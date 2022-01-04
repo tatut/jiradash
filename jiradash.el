@@ -20,15 +20,20 @@
 
 (defcustom jiradash-dashboards
   '(((name . "My open issues")
-     (jql . "resolution = Unresolved and status != closed and assignee = currentUser() and Sprint in openSprints()"))
+     (jql . "assignee = currentUser() and status not in ('closed')"))
 
-    ((name . "Current sprint issues")
-     (jql . "sprint in openSprints()"))
+    ((name . "Ready for development")
+     (jql . "status = 'ready for development' order by rank"))
 
     ((name . "Backlog and future issues")
      (jql . "(sprint = null or sprint in futureSprints()) and status != Closed")))
   "The JIRA dashboards to show"
   :type '(list (alist :key-type string :value-type string)))
+
+(defcustom jiradash-custom-fields
+  '()
+  "List of (name . fieldname) extra fields to show in issue description section."
+  :type '(list (cons string string)))
 
 (defun jiradash-issue-at-point ()
   (alist-get 'jiradash-issue (magit-section-ident (magit-current-section))))
