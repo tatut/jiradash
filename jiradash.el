@@ -4,7 +4,7 @@
 (require 's)
 (require 'dash)
 
-(defconst jiradash-hotkeys '("o" "a" "1" "2" "3" "4" "5" "6"))
+(defconst jiradash-hotkeys '("c" "o" "a" "1" "2" "3" "4" "5" "6"))
 
 (defvar jiradash-mode-map
   (let ((map (make-sparse-keymap)))
@@ -99,13 +99,28 @@
                                                               (alist-get 'displayName user))
                                                             assignable-users)))))
     (message "Assigning %s to %s" key assignee)
-    (jiralib2-assign-issue key (if (string= "unassigned" assignee)
-                                   nil
-                                 (-some (lambda (user)
-                                          (let ((display-name (alist-get 'displayName user)))
-                                            (when (string= display-name assignee)
-                                              (alist-get 'name user))))
-                                        assignable-users)))))
+    (let ((user (-some (lambda (user)
+                         (let ((display-name (alist-get 'displayName user)))
+                           (when (string= display-name assignee)
+                             (alist-get 'accountId user))))
+                       assignable-users)))
+      (jiralib2-session-call
+       (format "/rest/api/2/issue/%s/assignee" key)
+       :type "PUT"
+       :data (json-encode `((accountId . ,(if (string= "unassigned" assignee)
+                                              nil
+                                            user))))))))
+
+(defun jiradash-comment-on-issue (key)
+  (let ((comment (read-string (format "Comment on %s: " key))))
+    (jiralib2-add-comment key comment)))
+
+(defun jiradash-insert-button (title action hotkey tooltip)
+  (button-put
+         (insert-button (format "(%s) %s" hotkey title)
+                        'action action
+                        'help-echo tooltip)
+         'jiradash-hotkey hotkey))
 
 (defun jiradash-fetch-and-insert-issue (key)
   (message "Fetch issue %s" key)
@@ -115,21 +130,26 @@
 
     (magit-insert-section (jiradash-buttons)
       (magit-insert-section-body
-        (button-put
-         (insert-button "(o) Open in browser"
-                        'action (lambda (_button)
+        (jiradash-insert-button "Open in browser"
+                                (lambda (_button)
                                   (message "Opening issue %s in browser" key)
                                   (browse-url-generic (jiradash-api-url->browse-url
                                                        (alist-get 'self issue)
                                                        key)))
-                        'help-echo (format "Open %s in browser" key))
-         'jiradash-hotkey "o")
+                                "o"
+                                (format "Open %s in browser" key))
         (insert " ")
-        (button-put (insert-button "(a) Assign"
-                                   'action (lambda (_button)
-                                             (jiradash-assign-issue key))
-                                   'help-echo (format "Set new assignee for %s" key))
-                    'jiradash-hotkey "a")
+        (jiradash-insert-button "Assign"
+                                (lambda (_button)
+                                  (jiradash-assign-issue key))
+                                "a"
+                                (format "Set new assignee for %s" key))
+        (insert " ")
+        (jiradash-insert-button "Comment"
+                                (lambda (_button)
+                                  (jiradash-comment-on-issue key))
+                                "c"
+                                (format "Comment on issue %s" key))
         (insert "\n")
         (when (> (length actions) 0)
           (insert "Actions: ")
